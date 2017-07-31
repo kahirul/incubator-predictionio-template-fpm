@@ -1,13 +1,14 @@
-package org.example.vanilla
+package org.example.fpgrowth
 
-import org.apache.predictionio.controller.EngineFactory
-import org.apache.predictionio.controller.Engine
+import org.apache.predictionio.controller.{Engine, EngineFactory}
 
-case class Query(q: String) extends Serializable
+case class Query(items: Array[String]) extends Serializable
 
-case class PredictedResult(p: String) extends Serializable
+case class PredictedResult(consequentItems: Array[ConsequentItem]) extends Serializable
 
-object VanillaEngine extends EngineFactory {
+case class ConsequentItem(items: Array[String], confidence: Double) extends Serializable
+
+object FPGrowthEngine extends EngineFactory {
   def apply() = {
     new Engine(
       classOf[DataSource],

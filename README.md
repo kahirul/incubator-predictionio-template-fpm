@@ -36,3 +36,6 @@ Please refer to http://predictionio.incubator.apache.org/templates/vanilla/quick
 ### v0.1.0
 
 - initial version
+
+### Credit
+- https://github.com/goliasz/pio-template-fpm

@@ -1,44 +1,49 @@
-package org.example.vanilla
-
-import org.apache.predictionio.controller.PDataSource
-import org.apache.predictionio.controller.EmptyEvaluationInfo
-import org.apache.predictionio.controller.EmptyActualResult
-import org.apache.predictionio.controller.Params
-import org.apache.predictionio.data.storage.Event
-import org.apache.predictionio.data.store.PEventStore
-
-import org.apache.spark.SparkContext
-import org.apache.spark.SparkContext._
-import org.apache.spark.rdd.RDD
+package org.example.fpgrowth
 
 import grizzled.slf4j.Logger
+import org.apache.predictionio.controller.{EmptyActualResult, EmptyEvaluationInfo, PDataSource, Params}
+import org.apache.predictionio.data.store.PEventStore
+import org.apache.spark.SparkContext
+import org.apache.spark.rdd.RDD
 
 case class DataSourceParams(appName: String) extends Params
 
 class DataSource(val dsp: DataSourceParams)
-  extends PDataSource[TrainingData,
-      EmptyEvaluationInfo, Query, EmptyActualResult] {
+  extends PDataSource[TrainingData, EmptyEvaluationInfo, Query, EmptyActualResult] {
 
-  @transient lazy val logger = Logger[this.type]
+  @transient lazy val logger: Logger = Logger[this.type]
 
   override
   def readTraining(sc: SparkContext): TrainingData = {
 
-    // read all events of EVENT involving ENTITY_TYPE and TARGET_ENTITY_TYPE
-    val eventsRDD: RDD[Event] = PEventStore.find(
+    val eventsRDD: RDD[BuyEvent] = PEventStore.find(
       appName = dsp.appName,
-      entityType = Some("ENTITY_TYPE"),
-      eventNames = Some(List("EVENT")),
-      targetEntityType = Some(Some("TARGET_ENTITY_TYPE")))(sc)
+      entityType = Some("user"),
+      eventNames = Some(List("buy")),
+      targetEntityType = Some(Some("item")))(sc)
+      .map { event =>
+        try {
+          new BuyEvent(
+            user = event.entityId,
+            item = event.targetEntityId.get,
+            t = event.eventTime.getMillis / 1000
+          )
+        } catch {
+          case e: Exception => {
+            logger.error(s"Cannot convert $event to BuyEvent. $e")
+            throw e
+          }
+        }
+      }.cache()
 
     new TrainingData(eventsRDD)
   }
 }
 
-class TrainingData(
-  val events: RDD[Event]
-) extends Serializable {
-  override def toString = {
+case class BuyEvent(user: String, item: String, t: Long)
+
+class TrainingData(val events: RDD[BuyEvent]) extends Serializable {
+  override def toString: String = {
     s"events: [${events.count()}] (${events.take(2).toList}...)"
   }
 }

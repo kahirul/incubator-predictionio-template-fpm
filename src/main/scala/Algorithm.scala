@@ -1,37 +1,47 @@
-package org.example.vanilla
-
-import org.apache.predictionio.controller.P2LAlgorithm
-import org.apache.predictionio.controller.Params
-
-import org.apache.spark.SparkContext
-import org.apache.spark.SparkContext._
-import org.apache.spark.rdd.RDD
+package org.example.fpgrowth
 
 import grizzled.slf4j.Logger
+import org.apache.predictionio.controller.{P2LAlgorithm, Params}
+import org.apache.spark.SparkContext
+import org.apache.spark.mllib.fpm.FPGrowth
 
-case class AlgorithmParams(mult: Int) extends Params
+case class AlgorithmParams(minSupport: Double, minConfidence: Double) extends Params
 
 class Algorithm(val ap: AlgorithmParams)
-  // extends PAlgorithm if Model contains RDD[]
-  extends P2LAlgorithm[PreparedData, Model, Query, PredictedResult] {
+  extends P2LAlgorithm[PreparedData, FPGModel, Query, PredictedResult] {
 
-  @transient lazy val logger = Logger[this.type]
+  @transient lazy val logger: Logger = Logger[this.type]
 
-  def train(sc: SparkContext, data: PreparedData): Model = {
-    // Simply count number of events
-    // and multiple it by the algorithm parameter
-    // and store the number as model
-    val count = data.events.count().toInt * ap.mult
-    new Model(mc = count)
+  def train(sc: SparkContext, data: PreparedData): FPGModel = {
+
+    val transactions = data.events
+      .map(event => ((event.user, event.t), event.item))
+      .groupByKey()
+      .map(_._2.toArray).cache()
+
+    val fpg = new FPGrowth().setMinSupport(ap.minSupport)
+    val model = fpg.run(transactions)
+
+    val resultList = model.generateAssociationRules(ap.minConfidence)
+      .map(rule => (rule.antecedent.mkString(" "), rule.consequent, rule.confidence))
+      .collect.toList
+
+    new FPGModel(resultList)
   }
 
-  def predict(model: Model, query: Query): PredictedResult = {
-    // Prefix the query with the model data
-    val result = s"${model.mc}-${query.q}"
-    PredictedResult(p = result)
+  def predict(model: FPGModel, query: Query): PredictedResult = {
+    val items = query.items.toList.sorted.mkString(" ")
+    val result = model.resultList
+      .filter(x => {
+        x._1 == items
+      })
+      .sortBy(_._3)
+      .map(x => {
+        new ConsequentItem(x._2, x._3)
+      })
+
+    PredictedResult(result.toArray)
   }
 }
 
-class Model(val mc: Int) extends Serializable {
-  override def toString = s"mc=${mc}"
-}
+class FPGModel(val resultList: List[(String, Array[String], Double)]) extends Serializable {}
